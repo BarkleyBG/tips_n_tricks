@@ -1,0 +1,118 @@
+---
+title: "Tips n' Tricks in `ggplot2`: Forest plots"
+author: "https://github.com/BarkleyBG/"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(eval = TRUE)
+```
+
+
+
+### Toy data: a simulation study
+
+Data frame of estimates from a model might look like this:
+
+```{r, include = FALSE}
+library(tidyverse)
+```
+
+```{r}
+set.seed(36)
+ss <- 50
+dfm <- dplyr::data_frame(
+  est  = rnorm(ss,4.94,0.05),
+  se = rlnorm(ss,-3,0.2),
+  est_type = "parm1",
+  sim_num = 1:ss
+  ) 
+
+dfm %>% head()
+```
+
+### Summarizing simulation studyresults
+
+The true value(s) could be in a dataframe, and you can join them:
+
+```{r}
+true_vals <- dplyr::data_frame(
+  parm_type = "parm1",
+  truth = 5
+)
+
+dfm <- dfm %>% 
+  dplyr::full_join(true_vals, by = c('est_type' = 'parm_type'))
+
+dfm %>% head()
+```
+
+Compute relevant quantities
+```{r}
+results <- dfm %>% 
+  dplyr::mutate(LCI = est-1.96*se,
+                UCI = est+1.96*se,
+                bias = est-truth,
+                covers = LCI<truth & UCI>truth,
+                bias_adj = bias/truth,
+                se_adj = se/truth,
+                avg_est = mean(est),
+                ase = mean(se),
+                ese = sd(est),
+                se_ratio = ase/ese
+  )
+results %>% head()
+```
+
+Table of summarized results
+
+```{r}
+summary <- results %>% 
+  group_by(est_type) %>% 
+  dplyr::summarize(
+    coverage = mean(covers),
+    ase = mean(se),
+    ese = sd(est),
+    bias = mean(bias),
+    est = mean(est),
+    med_se_rat = median(se_ratio)
+  ) %>% 
+  dplyr::ungroup() %>% 
+  dplyr::select(est_type, est, bias, ase, ese, med_se_rat, coverage) 
+
+summary %>% 
+  knitr::kable(digits=3, caption="average over sims")
+  
+```
+
+### A basic forest plot:
+
+```{r}
+p1 <- results %>% 
+    dplyr::mutate(
+      LCI_rank = rank(LCI),
+      UCI_rank = rank(-UCI),
+      est_rank = rank(est)
+    ) %>% 
+    ggplot(aes(x=as.factor(est_rank), y = est, color = covers))+
+    geom_point() + 
+    geom_errorbar(aes(ymin = LCI, ymax = UCI)) +
+    # facet_grid(alpha1~., scales = "free_y") + ##not necessary
+    geom_hline(aes(yintercept = truth), color = "purple", linetype = "dashed") + 
+    geom_hline(aes(yintercept = avg_est), color = "green", linetype = "dotted") + 
+    theme(legend.position = "bottom") + 
+    xlab("simulations (out of order)")
+
+p1 + 
+  labs(title="Forest plot in ggplot2",
+       subtitle = "use coord_flip() to rotate")
+
+
+
+```
+
+See [this S/o post for more details](http://stackoverflow.com/questions/20766666/finetuning-a-forest-plot-with-ggplot2)
